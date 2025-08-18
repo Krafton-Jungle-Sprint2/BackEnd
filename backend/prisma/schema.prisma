@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma - MySQL 버전 (채팅/간트 추가)
 
 generator client {
   provider = "prisma-client-js"
@@ -15,9 +14,13 @@ model User {
   email     String   @unique
   password  String
   nickname  String
+  avatar    String?  // 프로필 이미지 URL
+  role      String   @default("member") // admin, manager, member
+  isActive  Boolean  @default(true)
+  lastLogin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  
   // 관계
   todos    Todo[]
   messages ChatMessage[]
@@ -26,49 +29,61 @@ model User {
 }
 
 model Todo {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   title       String
-  description String?   @db.Text
-  completed   Boolean   @default(false)
-  startDate   DateTime?
-  endDate     DateTime?
-  priority    String    @default("medium") // low, medium, high
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // 관계
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  description String?  @db.Text
+  status      String   @default("pending") // pending, in_progress, completed, cancelled
+  priority    String   @default("medium")  // low, medium, high, urgent
+  startDate   DateTime @default(now())
+  endDate     DateTime
+  progress    Int      @default(0)         // 0-100 진행률
+  tags        String?  // JSON 배열로 저장 ["frontend", "urgent"]
+  estimatedHours Int?   // 예상 작업 시간
+  actualHours    Int?   // 실제 작업 시간
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // 외래키
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([status])
+  @@index([startDate, endDate])
   @@map("todos")
 }
 
 model ChatRoom {
   id          String   @id @default(uuid())
   name        String
-  description String?
+  description String?  @db.Text
   isPrivate   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
+  
   // 관계
   messages ChatMessage[]
-
+  
   @@map("chat_rooms")
 }
 
 model ChatMessage {
   id        String   @id @default(uuid())
-  content   String   @db.Text
+  text      String   @db.Text
+  messageType String @default("text") // text, image, file, system
+  isEdited  Boolean  @default(false)
+  editedAt  DateTime?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 관계
+  
+  // 외래키
+  roomId String
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  roomId String
-  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-
+  @@index([roomId])
+  @@index([userId])
+  @@index([createdAt])
   @@map("chat_messages")
 }

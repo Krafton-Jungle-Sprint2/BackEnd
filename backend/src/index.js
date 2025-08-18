@@ -6,6 +6,7 @@ const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const mysql = require("mysql2/promise");
+const ganttRoutes = require("./gantt");
 require("dotenv").config();
 
 const app = express();

@@ -2,18 +2,54 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
+const rateLimit = require("express-rate-limit");
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15분
+  max: 10, // 최대 10번 시도
+  message: { error: "Too many authentication attempts, try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// JWT 토큰 생성 함수
+const generateTokens = (user) => {
+  const payload = {
+    userId: user.id,
+    email: user.email,
+    nickname: user.nickname,
+    role: user.role,
+  };
+
+  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "24h",
+  });
+
+  const refreshToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
+
+  return { accessToken, refreshToken };
+};
+
 // 회원가입
-router.post("/signup", async (req, res) => {
+router.post("/register", authLimiter, async (req, res) => {
   try {
     const { email, password, nickname } = req.body;
 
-    // 입력 검증
+    // 입력 유효성 검사
     if (!email || !password || !nickname) {
-      return res.status(400).json({ error: "모든 필드를 입력해주세요." });
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters" });
     }
 
     // 이메일 중복 체크
@@ -22,11 +58,12 @@ router.post("/signup", async (req, res) => {
     });
 
     if (existingUser) {
-      return res.status(400).json({ error: "이미 존재하는 이메일입니다." });
+      return res.status(409).json({ error: "User already exists" });
     }
 
-    // 비밀번호 해싱
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // 패스워드 해싱
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // 사용자 생성
     const user = await prisma.user.create({
@@ -39,38 +76,33 @@ router.post("/signup", async (req, res) => {
         id: true,
         email: true,
         nickname: true,
+        role: true,
         createdAt: true,
       },
     });
 
     // JWT 토큰 생성
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "7d" }
-    );
+    const { accessToken, refreshToken } = generateTokens(user);
 
     res.status(201).json({
-      message: "회원가입 성공",
-      token,
+      message: "User registered successfully",
       user,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
-    console.error("회원가입 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("Register error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // 로그인
-router.post("/login", async (req, res) => {
+router.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // 입력 검증
     if (!email || !password) {
-      return res
-        .status(400)
-        .json({ error: "이메일과 비밀번호를 입력해주세요." });
+      return res.status(400).json({ error: "Email and password are required" });
     }
 
     // 사용자 조회
@@ -78,57 +110,80 @@ router.post("/login", async (req, res) => {
       where: { email },
     });
 
-    if (!user) {
-      return res
-        .status(401)
-        .json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // 비밀번호 검증
+    // 패스워드 검증
     const isValidPassword = await bcrypt.compare(password, user.password);
+
     if (!isValidPassword) {
-      return res
-        .status(401)
-        .json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+      return res.status(401).json({ error: "Invalid credentials" });
     }
+
+    // 마지막 로그인 시간 업데이트
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+
+    // 응답용 사용자 정보 (패스워드 제외)
+    const userInfo = {
+      id: user.id,
+      email: user.email,
+      nickname: user.nickname,
+      role: user.role,
+      avatar: user.avatar,
+      lastLogin: new Date(),
+    };
 
     // JWT 토큰 생성
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "7d" }
-    );
+    const { accessToken, refreshToken } = generateTokens(userInfo);
 
     res.json({
-      message: "로그인 성공",
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        nickname: user.nickname,
-        createdAt: user.createdAt,
-      },
+      message: "Login successful",
+      user: userInfo,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
-    console.error("로그인 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// 프로필 조회
-router.get("/profile", async (req, res) => {
-  try {
-    const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1];
+// 토큰 검증 미들웨어
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1]; // "Bearer TOKEN"
 
-    if (!token) {
-      return res.status(401).json({ error: "토큰이 필요합니다." });
+  if (!token) {
+    return res.status(401).json({ error: "Access token required" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({ error: "Token expired" });
+      }
+      return res.status(403).json({ error: "Invalid token" });
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-secret-key"
-    );
+    req.user = decoded;
+    next();
+  });
+};
+
+// 토큰 갱신
+router.post("/refresh-token", async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(401).json({ error: "Refresh token required" });
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -136,22 +191,64 @@ router.get("/profile", async (req, res) => {
         id: true,
         email: true,
         nickname: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: "Invalid refresh token" });
+    }
+
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
+
+    res.json({
+      accessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(401).json({ error: "Invalid refresh token" });
+  }
+});
+
+// 사용자 정보 조회
+router.get("/me", authenticateToken, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        email: true,
+        nickname: true,
+        role: true,
+        avatar: true,
+        isActive: true,
+        lastLogin: true,
         createdAt: true,
+        _count: {
+          select: {
+            todos: true,
+            messages: true,
+          },
+        },
       },
     });
 
     if (!user) {
-      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+      return res.status(404).json({ error: "User not found" });
     }
 
-    res.json({ user });
+    res.json(user);
   } catch (error) {
-    if (error.name === "JsonWebTokenError") {
-      return res.status(401).json({ error: "유효하지 않은 토큰입니다." });
-    }
-    console.error("프로필 조회 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("Get user info error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-module.exports = router;
+// 로그아웃 (클라이언트에서 토큰 삭제하면 됨, 서버는 상태 없음)
+router.post("/logout", authenticateToken, (req, res) => {
+  res.json({ message: "Logout successful" });
+});
+
+module.exports = { router, authenticateToken };
