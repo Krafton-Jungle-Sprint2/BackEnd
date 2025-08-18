@@ -59,15 +59,366 @@ const authenticateToken = (req, res, next) => {
 // ===============================================
 // ... (이전과 동일한 모든 app.get, app.post, app.put, app.delete 코드) ...
 app.post("/api/auth/register", async (req, res) => {
-  /* ... */
+  try {
+    const { email, password, nickname } = req.body;
+
+    // 이메일 중복 확인
+    const [existingUser] = await db.execute(
+      "SELECT id FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(400).json({ error: "이미 존재하는 이메일입니다" });
+    }
+
+    // 비밀번호 해시화
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 사용자 생성
+    const [result] = await db.execute(
+      "INSERT INTO users (email, password, nickname) VALUES (?, ?, ?)",
+      [email, hashedPassword, nickname]
+    );
+
+    res.status(201).json({
+      message: "회원가입 성공",
+      userId: result.insertId,
+    });
+  } catch (error) {
+    console.error("회원가입 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
 });
+
 app.post("/api/auth/login", async (req, res) => {
-  /* ... */
+  try {
+    const { email, password } = req.body;
+
+    // 사용자 조회
+    const [users] = await db.execute(
+      "SELECT id, email, password, nickname FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (users.length === 0) {
+      return res
+        .status(401)
+        .json({ error: "이메일 또는 비밀번호가 잘못되었습니다" });
+    }
+
+    const user = users[0];
+
+    // 비밀번호 확인
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res
+        .status(401)
+        .json({ error: "이메일 또는 비밀번호가 잘못되었습니다" });
+    }
+
+    // JWT 토큰 생성
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET || "secret_key",
+      { expiresIn: "24h" }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        nickname: user.nickname,
+      },
+    });
+  } catch (error) {
+    console.error("로그인 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
 });
+
 app.get("/api/todos", authenticateToken, async (req, res) => {
-  /* ... */
+  try {
+    const [todos] = await db.execute(
+      "SELECT id, title, description, start_date, end_date, status, created_at FROM todos WHERE user_id = ? ORDER BY created_at DESC",
+      [req.user.userId]
+    );
+
+    res.json(todos);
+  } catch (error) {
+    console.error("ToDo 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
 });
-// ... 이하 모든 API 라우트 코드 ...
+
+// ToDo 생성
+app.post("/api/todos", authenticateToken, async (req, res) => {
+  try {
+    const { title, description, startDate, endDate } = req.body;
+
+    const [result] = await db.execute(
+      "INSERT INTO todos (user_id, title, description, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+      [req.user.userId, title, description || null, startDate, endDate]
+    );
+
+    // 생성된 ToDo 조회해서 반환
+    const [newTodo] = await db.execute(
+      "SELECT id, title, description, start_date, end_date, status, created_at FROM todos WHERE id = ?",
+      [result.insertId]
+    );
+
+    res.status(201).json(newTodo[0]);
+  } catch (error) {
+    console.error("ToDo 생성 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ToDo 수정
+app.put("/api/todos/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, startDate, endDate, status } = req.body;
+
+    // 해당 ToDo가 현재 사용자의 것인지 확인
+    const [existingTodo] = await db.execute(
+      "SELECT id FROM todos WHERE id = ? AND user_id = ?",
+      [id, req.user.userId]
+    );
+
+    if (existingTodo.length === 0) {
+      return res.status(404).json({ error: "ToDo를 찾을 수 없습니다" });
+    }
+
+    // ToDo 업데이트
+    await db.execute(
+      "UPDATE todos SET title = ?, description = ?, start_date = ?, end_date = ?, status = ? WHERE id = ?",
+      [title, description, startDate, endDate, status, id]
+    );
+
+    // 업데이트된 ToDo 조회해서 반환
+    const [updatedTodo] = await db.execute(
+      "SELECT id, title, description, start_date, end_date, status, created_at FROM todos WHERE id = ?",
+      [id]
+    );
+
+    res.json(updatedTodo[0]);
+  } catch (error) {
+    console.error("ToDo 수정 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ToDo 삭제
+app.delete("/api/todos/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 해당 ToDo가 현재 사용자의 것인지 확인
+    const [existingTodo] = await db.execute(
+      "SELECT id FROM todos WHERE id = ? AND user_id = ?",
+      [id, req.user.userId]
+    );
+
+    if (existingTodo.length === 0) {
+      return res.status(404).json({ error: "ToDo를 찾을 수 없습니다" });
+    }
+
+    // ToDo 삭제
+    await db.execute("DELETE FROM todos WHERE id = ?", [id]);
+
+    res.json({ message: "ToDo가 삭제되었습니다" });
+  } catch (error) {
+    console.error("ToDo 삭제 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 간트차트 데이터 조회
+app.get("/api/gantt", authenticateToken, async (req, res) => {
+  try {
+    const [todos] = await db.execute(
+      "SELECT id, title, start_date, end_date, status FROM todos WHERE user_id = ? AND start_date IS NOT NULL AND end_date IS NOT NULL ORDER BY start_date",
+      [req.user.userId]
+    );
+
+    // 간트차트 형식으로 데이터 변환
+    const ganttData = todos.map((todo) => ({
+      id: todo.id,
+      name: todo.title,
+      start: todo.start_date,
+      end: todo.end_date,
+      status: todo.status,
+      duration: Math.ceil(
+        (new Date(todo.end_date) - new Date(todo.start_date)) /
+          (1000 * 60 * 60 * 24)
+      ), // 일수 계산
+    }));
+
+    res.json(ganttData);
+  } catch (error) {
+    console.error("간트차트 데이터 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 채팅방 목록 조회
+app.get("/api/chat/rooms", authenticateToken, async (req, res) => {
+  try {
+    const [rooms] = await db.execute(
+      "SELECT id, name, description, created_at FROM chat_rooms ORDER BY created_at DESC"
+    );
+
+    res.json(rooms);
+  } catch (error) {
+    console.error("채팅방 목록 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 채팅방 생성
+app.post("/api/chat/rooms", authenticateToken, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    const [result] = await db.execute(
+      "INSERT INTO chat_rooms (name, description, created_by) VALUES (?, ?, ?)",
+      [name, description || null, req.user.userId]
+    );
+
+    // 생성된 채팅방 조회해서 반환
+    const [newRoom] = await db.execute(
+      "SELECT id, name, description, created_at FROM chat_rooms WHERE id = ?",
+      [result.insertId]
+    );
+
+    res.status(201).json(newRoom[0]);
+  } catch (error) {
+    console.error("채팅방 생성 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 특정 채팅방의 메시지 조회
+app.get(
+  "/api/chat/rooms/:roomId/messages",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const limit = parseInt(req.query.limit) || 50;
+      const offset = parseInt(req.query.offset) || 0;
+
+      const [messages] = await db.execute(
+        `SELECT cm.id, cm.message, cm.created_at, cm.user_id, u.nickname as user_nickname 
+       FROM chat_messages cm 
+       JOIN users u ON cm.user_id = u.id 
+       WHERE cm.room_id = ? 
+       ORDER BY cm.created_at DESC 
+       LIMIT ? OFFSET ?`,
+        [roomId, limit, offset]
+      );
+
+      // 최신 순으로 정렬 (화면 표시용)
+      res.json(messages.reverse());
+    } catch (error) {
+      console.error("채팅 메시지 조회 오류:", error);
+      res.status(500).json({ error: "서버 오류" });
+    }
+  }
+);
+
+// 사용자 프로필 조회
+app.get("/api/user/profile", authenticateToken, async (req, res) => {
+  try {
+    const [users] = await db.execute(
+      "SELECT id, email, nickname, created_at FROM users WHERE id = ?",
+      [req.user.userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다" });
+    }
+
+    res.json(users[0]);
+  } catch (error) {
+    console.error("프로필 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 사용자 프로필 수정
+app.put("/api/user/profile", authenticateToken, async (req, res) => {
+  try {
+    const { nickname } = req.body;
+
+    await db.execute("UPDATE users SET nickname = ? WHERE id = ?", [
+      nickname,
+      req.user.userId,
+    ]);
+
+    // 업데이트된 사용자 정보 조회
+    const [updatedUser] = await db.execute(
+      "SELECT id, email, nickname, created_at FROM users WHERE id = ?",
+      [req.user.userId]
+    );
+
+    res.json(updatedUser[0]);
+  } catch (error) {
+    console.error("프로필 수정 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ToDo 상태별 통계 조회
+app.get("/api/todos/stats", authenticateToken, async (req, res) => {
+  try {
+    const [stats] = await db.execute(
+      `SELECT 
+        status,
+        COUNT(*) as count
+       FROM todos 
+       WHERE user_id = ? 
+       GROUP BY status`,
+      [req.user.userId]
+    );
+
+    // 기본 상태값들로 초기화
+    const result = {
+      pending: 0,
+      in_progress: 0,
+      completed: 0,
+      total: 0,
+    };
+
+    // 통계 데이터 적용
+    stats.forEach((stat) => {
+      result[stat.status] = stat.count;
+      result.total += stat.count;
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("ToDo 통계 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// 팀원 목록 조회 (간단 버전)
+app.get("/api/team/members", authenticateToken, async (req, res) => {
+  try {
+    // 모든 사용자를 팀원으로 간주 (MVP 버전)
+    const [members] = await db.execute(
+      "SELECT id, email, nickname, created_at FROM users ORDER BY nickname"
+    );
+
+    res.json(members);
+  } catch (error) {
+    console.error("팀원 조회 오류:", error);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
 
 // ==================== Socket.IO 채팅 로직 ====================
 // 이 부분은 이제 API 서버(app)가 아닌 별도의 socketServer와 연결됩니다.
