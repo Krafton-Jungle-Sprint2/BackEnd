@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  # MySQL 데이터베이스
+  mysql:
+    image: mysql:8.0
+    container_name: team_collaboration_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: team_collaboration
+      MYSQL_USER: teamuser
+      MYSQL_PASSWORD: teampassword
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - team_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # 백엔드 서버
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: team_collaboration_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql://teamuser:teampassword@mysql:3307/team_collaboration
+      JWT_SECRET: your-production-jwt-secret-key
+      API_PORT: 4000
+      SOCKET_PORT: 5000
+      NODE_ENV: production
+    ports:
+      - "4000:4000" # API 포트
+      - "5000:5000" # Socket.IO 포트
+    depends_on:
+      - mysql
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - team_network
+    command: npm run dev
+
+# 볼륨과 네트워크 정의
+volumes:
+  mysql_data:
+
+networks:
+  team_network:
+    driver: bridge
