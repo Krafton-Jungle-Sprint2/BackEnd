@@ -6,12 +6,24 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "docker:build": "docker build -t codea-backend .",
+    "docker:run": "docker run -p 4000:4000 -p 5000:5000 -p 5555:5555 codea-backend",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up -d",
+    "prisma:migrate": "docker-compose exec backend npx prisma migrate dev",
+    "prisma:studio": "docker-compose exec backend npx prisma studio --hostname 0.0.0.0",
+    "prisma:studio-local": "npx prisma studio",
+    "prisma:reset": "docker-compose exec backend npx prisma migrate reset",
+    "prisma:generate": "docker-compose exec backend npx prisma generate",
+    "prisma:push": "docker-compose exec backend npx prisma db push",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "node src/seed.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "studio": "prisma studio"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
