@@ -8,15 +8,13 @@ const prisma = new PrismaClient();
 const generateTokens = (userId, email, role) => {
   const accessToken = jwt.sign(
     { userId, email, role },
-    process.env.JWT_SECRET || "secret_key",
+    process.env.JWT_SECRET,
     { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "15m" }
   );
 
-  const refreshToken = jwt.sign(
-    { userId },
-    process.env.JWT_SECRET || "secret_key",
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d" }
-  );
+  const refreshToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+    expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d",
+  });
 
   return { accessToken, refreshToken };
 };
@@ -30,7 +28,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: "인증 토큰이 필요합니다" });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || "secret_key", (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: "유효하지 않은 토큰입니다" });
     }

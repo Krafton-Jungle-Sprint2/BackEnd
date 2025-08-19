@@ -21,7 +21,6 @@ router.post("/", authenticateToken, async (req, res) => {
     const workspace = await prisma.workspace.create({
       data: {
         name,
-        description,
         ownerId: req.user.userId,
       },
       include: {

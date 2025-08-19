@@ -4,8 +4,9 @@
   "description": "Team collaboration backend with Express, Socket.IO, and MySQL - New API Structure",
   "main": "src/app.js",
   "scripts": {
-    "dev": "nodemon src/app.js",
-    "start": "node src/app.js",
+    "dev": "node src/index.js",
+    "start": "node src/index.js",
+    "dev:watch": "nodemon src/index.js",
     "docker:build": "docker build -t team-backend .",
     "docker:run": "docker run -p 4000:4000 -p 5000:5000 -p 5555:5555 team-backend",
     "docker:up": "docker-compose up -d",

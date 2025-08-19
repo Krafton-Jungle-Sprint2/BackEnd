@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🌱 시드 데이터 생성 시작...");
 
-  // 기본 사용자들 생성
+  // 1. 기본 사용자들 생성
   const hashedPassword = await bcrypt.hash("password123", 10);
 
   const users = await Promise.all([
@@ -17,6 +17,7 @@ async function main() {
         email: "admin@example.com",
         password: hashedPassword,
         nickname: "관리자",
+        role: "admin", // 관리자 역할 부여
       },
     }),
     prisma.user.upsert({
@@ -38,106 +39,115 @@ async function main() {
       },
     }),
   ]);
-
   console.log(`✅ 사용자 ${users.length}명 생성 완료`);
 
-  // 기본 채팅방 생성
-  const chatRooms = await Promise.all([
-    prisma.chatRoom.upsert({
-      where: { id: "general-room" },
-      update: {},
-      create: {
-        id: "general-room",
-        name: "일반 채팅",
-        description: "전체 팀원들의 일반적인 대화방입니다.",
-      },
-    }),
-    prisma.chatRoom.upsert({
-      where: { id: "dev-room" },
-      update: {},
-      create: {
-        id: "dev-room",
-        name: "개발팀",
-        description: "개발 관련 논의방입니다.",
-      },
-    }),
-    prisma.chatRoom.upsert({
-      where: { id: "design-room" },
-      update: {},
-      create: {
-        id: "design-room",
-        name: "디자인팀",
-        description: "디자인 관련 논의방입니다.",
-      },
-    }),
-  ]);
-
-  console.log(`✅ 채팅방 ${chatRooms.length}개 생성 완료`);
-
-  // 샘플 TODO 생성
-  const todos = await Promise.all([
-    prisma.todo.create({
+  // 2. 샘플 개인 Todo 생성 (스키마에 맞게 수정)
+  await Promise.all([
+    prisma.personalTodo.create({
       data: {
-        title: "프로젝트 기획 완료",
-        description: "전체 프로젝트 기획서 작성 및 검토",
-        startDate: new Date("2024-01-01"),
-        endDate: new Date("2024-01-07"),
+        title: "개인 프로젝트 기획",
+        description: "사이드 프로젝트 기획서 초안 작성",
         status: "completed",
-        progress: 100,
         priority: "high",
-        userId: users[0].id,
+        startDate: new Date("2025-08-20"),
+        dueDate: new Date("2025-08-22"),
+        userId: users[1].id, // 김개발의 Todo
       },
     }),
-    prisma.todo.create({
+    prisma.personalTodo.create({
       data: {
-        title: "백엔드 API 개발",
-        description: "사용자 인증 및 채팅 API 구현",
-        startDate: new Date("2024-01-08"),
-        endDate: new Date("2024-01-15"),
+        title: "포트폴리오 정리",
+        description: "디자인 포트폴리오 업데이트 및 정리",
         status: "in_progress",
-        progress: 70,
-        priority: "high",
-        userId: users[1].id,
-      },
-    }),
-    prisma.todo.create({
-      data: {
-        title: "UI/UX 디자인",
-        description: "메인 페이지 및 채팅 인터페이스 디자인",
-        startDate: new Date("2024-01-10"),
-        endDate: new Date("2024-01-18"),
-        status: "pending",
-        progress: 30,
         priority: "medium",
-        userId: users[2].id,
+        startDate: new Date("2025-08-21"),
+        dueDate: new Date("2025-08-25"),
+        userId: users[2].id, // 이디자인의 Todo
       },
     }),
   ]);
+  console.log("✅ 개인 Todo 2개 생성 완료");
 
-  console.log(`✅ TODO ${todos.length}개 생성 완료`);
-
-  // 샘플 채팅 메시지
-  await prisma.chatMessage.createMany({
-    data: [
-      {
-        text: "안녕하세요! 팀 프로젝트를 시작해봅시다.",
-        roomId: "general-room",
-        userId: users[0].id,
-      },
-      {
-        text: "백엔드 API 개발 진행 상황 공유드립니다.",
-        roomId: "dev-room",
-        userId: users[1].id,
-      },
-      {
-        text: "디자인 시안 검토 부탁드려요~",
-        roomId: "design-room",
-        userId: users[2].id,
-      },
-    ],
+  // 3. 샘플 워크스페이스 생성
+  const workspace = await prisma.workspace.upsert({
+    where: { id: "team-collab-workspace" },
+    update: {},
+    create: {
+      id: "team-collab-workspace",
+      name: "팀 협업 프로젝트",
+      ownerId: users[0].id, // 관리자가 소유자
+    },
   });
+  console.log("✅ 워크스페이스 1개 생성 완료");
 
-  console.log("✅ 샘플 채팅 메시지 생성 완료");
+  // 4. 워크스페이스에 멤버 추가
+  await Promise.all([
+    // 소유자도 멤버로 추가
+    prisma.workspaceMember.upsert({
+      where: {
+        workspaceId_userId: { workspaceId: workspace.id, userId: users[0].id },
+      },
+      update: {},
+      create: {
+        workspaceId: workspace.id,
+        userId: users[0].id,
+        accepted: true,
+      },
+    }),
+    // 김개발 멤버로 추가
+    prisma.workspaceMember.upsert({
+      where: {
+        workspaceId_userId: { workspaceId: workspace.id, userId: users[1].id },
+      },
+      update: {},
+      create: {
+        workspaceId: workspace.id,
+        userId: users[1].id,
+        accepted: true,
+      },
+    }),
+    // 이디자인 멤버로 추가
+    prisma.workspaceMember.upsert({
+      where: {
+        workspaceId_userId: { workspaceId: workspace.id, userId: users[2].id },
+      },
+      update: {},
+      create: {
+        workspaceId: workspace.id,
+        userId: users[2].id,
+        accepted: true,
+      },
+    }),
+  ]);
+  console.log("✅ 워크스페이스 멤버 3명 추가 완료");
+
+  // 5. 샘플 그룹 Task 생성
+  await Promise.all([
+    prisma.groupTask.create({
+      data: {
+        workspaceId: workspace.id,
+        title: "로그인 API 개발",
+        description: "JWT 기반 사용자 인증 API 구현",
+        department: "BE",
+        status: "in_progress",
+        startDate: new Date("2025-08-20"),
+        dueDate: new Date("2025-08-27"),
+      },
+    }),
+    prisma.groupTask.create({
+      data: {
+        workspaceId: workspace.id,
+        title: "메인 페이지 UI 디자인",
+        description: "Figma를 사용한 메인 페이지 시안 작업",
+        department: "FE",
+        status: "pending",
+        startDate: new Date("2025-08-22"),
+        dueDate: new Date("2025-08-29"),
+      },
+    }),
+  ]);
+  console.log("✅ 그룹 Task 2개 생성 완료");
+
   console.log("🎉 시드 데이터 생성 완료!");
   console.log("\n📋 생성된 테스트 계정:");
   console.log("- admin@example.com / password123 (관리자)");

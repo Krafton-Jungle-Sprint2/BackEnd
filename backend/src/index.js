@@ -1,138 +1,109 @@
-// src/middleware/auth.js - 인증 미들웨어
-const jwt = require("jsonwebtoken");
+// src/index.js - 서버 시작점
+require("dotenv").config();
+const app = require("./app");
+const http = require("http");
+const { initializeSocket } = require("./socket");
 const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcrypt");
 
 const prisma = new PrismaClient();
 
-// JWT 토큰 생성 함수
-const generateTokens = (userId, email, role) => {
-  const accessToken = jwt.sign(
-    { userId, email, role },
-    process.env.JWT_SECRET || "secret_key",
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "15m" }
-  );
+// HTTP 서버들 생성
+const apiServer = http.createServer(app);
+const socketServer = http.createServer();
 
-  const refreshToken = jwt.sign(
-    { userId },
-    process.env.JWT_SECRET || "secret_key",
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d" }
-  );
+// Socket.IO 초기화
+const io = initializeSocket(socketServer);
 
-  return { accessToken, refreshToken };
-};
+const API_PORT = process.env.API_PORT || 4000;
+const SOCKET_PORT = process.env.SOCKET_PORT || 5000;
 
-// JWT 인증 미들웨어
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ error: "인증 토큰이 필요합니다" });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET || "secret_key", (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: "유효하지 않은 토큰입니다" });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// 워크스페이스 멤버 확인 미들웨어
-const checkWorkspaceMember = async (req, res, next) => {
+// 기본 데이터 생성 함수
+async function createDefaultData() {
   try {
-    const { wsId } = req.params;
-    const userId = req.user.userId;
-
-    // 소유자인지 확인
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        id: wsId,
-        ownerId: userId,
-      },
+    // 관리자 계정 생성 (이미 있으면 스킵)
+    const adminExists = await prisma.user.findUnique({
+      where: { email: "admin@example.com" },
     });
 
-    if (workspace) {
-      req.isOwner = true;
-      return next();
+    if (!adminExists) {
+      const hashedPassword = await bcrypt.hash("password123", 10);
+      await prisma.user.create({
+        data: {
+          email: "admin@example.com",
+          password: hashedPassword,
+          nickname: "관리자",
+          role: "admin",
+        },
+      });
+      console.log("✅ 관리자 계정 생성 완료");
     }
 
-    // 멤버인지 확인
-    const member = await prisma.workspaceMember.findFirst({
-      where: {
-        workspaceId: wsId,
-        userId: userId,
-        accepted: true,
-      },
+    // 테스트 사용자 생성
+    const testUserExists = await prisma.user.findUnique({
+      where: { email: "test@example.com" },
     });
 
-    if (!member) {
-      return res
-        .status(403)
-        .json({ error: "워크스페이스에 접근 권한이 없습니다" });
+    if (!testUserExists) {
+      const hashedPassword = await bcrypt.hash("password123", 10);
+      await prisma.user.create({
+        data: {
+          email: "test@example.com",
+          password: hashedPassword,
+          nickname: "테스트유저",
+          role: "member",
+        },
+      });
+      console.log("✅ 테스트 사용자 생성 완료");
     }
-
-    req.isOwner = false;
-    next();
   } catch (error) {
-    console.error("워크스페이스 멤버 확인 오류:", error);
-    res.status(500).json({ error: "서버 오류가 발생했습니다" });
+    console.error("기본 데이터 생성 오류:", error);
   }
-};
+}
 
-// 워크스페이스 소유자 확인 미들웨어
-const checkWorkspaceOwner = async (req, res, next) => {
+// 서버 시작 함수
+async function startServer() {
   try {
-    const { wsId } = req.params;
-    const userId = req.user.userId;
+    console.log("🔌 Prisma 연결 테스트...");
+    await prisma.$connect();
+    console.log("✅ Prisma 연결 성공");
 
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        id: wsId,
-        ownerId: userId,
-      },
+    // 기본 데이터 생성
+    await createDefaultData();
+
+    // API 서버 시작
+    apiServer.listen(API_PORT, () => {
+      console.log(`🚀 API 서버: http://localhost:${API_PORT}`);
     });
 
-    if (!workspace) {
-      return res
-        .status(403)
-        .json({ error: "워크스페이스 소유자만 접근할 수 있습니다" });
-    }
+    // Socket.IO 서버 시작
+    socketServer.listen(SOCKET_PORT, () => {
+      console.log(`💬 Socket.IO 서버: http://localhost:${SOCKET_PORT}`);
+    });
 
-    next();
+    console.log("🎉 모든 서버가 성공적으로 시작되었습니다!");
   } catch (error) {
-    console.error("워크스페이스 소유자 확인 오류:", error);
-    res.status(500).json({ error: "서버 오류가 발생했습니다" });
+    console.error("❌ 서버 시작 실패:", error);
+    process.exit(1);
   }
-};
+}
 
-// 관리자 권한 확인 미들웨어
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "관리자 권한이 필요합니다" });
-  }
-  next();
-};
+// 앱 종료 시 Prisma 연결 해제
+process.on("beforeExit", async () => {
+  await prisma.$disconnect();
+});
 
-// 본인 확인 미들웨어 (사용자가 자신의 데이터에만 접근)
-const requireSelf = (req, res, next) => {
-  const { userId } = req.params;
+process.on("SIGINT", async () => {
+  console.log("\n🛑 서버 종료 중...");
+  await prisma.$disconnect();
+  process.exit(0);
+});
 
-  if (userId && userId !== req.user.userId) {
-    return res
-      .status(403)
-      .json({ error: "본인의 데이터에만 접근할 수 있습니다" });
-  }
+process.on("SIGTERM", async () => {
+  console.log("\n🛑 서버 종료 중...");
+  await prisma.$disconnect();
+  process.exit(0);
+});
 
-  next();
-};
-
-module.exports = {
-  generateTokens,
-  authenticateToken,
-  checkWorkspaceMember,
-  checkWorkspaceOwner,
-  requireAdmin,
-  requireSelf,
-};
+// 서버 시작
+startServer();
