@@ -58,8 +58,17 @@ app.use("/workspaces", workspacesRouter);
 app.use("/workspaces/:wsId/tasks", tasksRouter); // 워크스페이스별 Task
 app.use("/admin", adminRouter);
 
-// 헬스체크
-app.get("/health", async (req, res) => {
+// 간단한 헬스체크 (Docker 헬스체크용)
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    version: "2.0.0",
+  });
+});
+
+// 상세한 헬스체크 (API 상태 확인용)
+app.get("/health/detailed", async (req, res) => {
   try {
     const dbHealth = await checkDatabaseHealth();
     res.json({
