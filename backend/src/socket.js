@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 function initializeSocket(server) {
   const io = socketIo(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || "http://localhost:3000",
+      origin: process.env.FRONTEND_URL || "http://localhost:5173",
       methods: ["GET", "POST"],
     },
   });
