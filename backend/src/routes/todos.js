@@ -1,272 +1,285 @@
+// src/routes/todos.js - 개인 Todo 라우터
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
+const { prisma } = require("../config/database");
+const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-// 할일 목록 조회
-router.get("/", async (req, res) => {
+// 개인 Todo 목록 조회
+router.get("/", authenticateToken, async (req, res) => {
   try {
-    const { page = 1, limit = 10, completed, priority } = req.query;
-    const skip = (page - 1) * limit;
+    const { status, priority, from, to, limit = 50, offset = 0 } = req.query;
+    const userId = req.user.userId;
 
-    // 필터 조건 구성
-    const where = {
-      userId: req.user.userId,
-    };
+    const whereClause = { userId };
+    if (status) whereClause.status = status;
+    if (priority) whereClause.priority = priority;
 
-    if (completed !== undefined) {
-      where.completed = completed === "true";
+    // 날짜 필터링
+    if (from || to) {
+      whereClause.AND = [];
+      if (from) {
+        whereClause.AND.push({
+          OR: [
+            { startDate: { gte: new Date(from) } },
+            { dueDate: { gte: new Date(from) } },
+          ],
+        });
+      }
+      if (to) {
+        whereClause.AND.push({
+          OR: [
+            { startDate: { lte: new Date(to) } },
+            { dueDate: { lte: new Date(to) } },
+          ],
+        });
+      }
     }
 
-    if (priority) {
-      where.priority = priority;
-    }
-
-    // 할일 조회
-    const todos = await prisma.todo.findMany({
-      where,
-      orderBy: [{ completed: "asc" }, { createdAt: "desc" }],
-      skip: parseInt(skip),
-      take: parseInt(limit),
-      include: {
-        user: {
-          select: {
-            id: true,
-            nickname: true,
-          },
-        },
-      },
-    });
-
-    // 전체 개수 조회
-    const totalCount = await prisma.todo.count({ where });
+    const [todos, totalCount] = await Promise.all([
+      prisma.personalTodo.findMany({
+        where: whereClause,
+        orderBy: { createdAt: "desc" },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.personalTodo.count({ where: whereClause }),
+    ]);
 
     res.json({
       todos,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
         total: totalCount,
-        pages: Math.ceil(totalCount / limit),
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: totalCount > parseInt(offset) + parseInt(limit),
       },
     });
   } catch (error) {
-    console.error("할일 목록 조회 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("개인 Todo 조회 오류:", error);
+    res.status(500).json({ error: "Todo 조회에 실패했습니다" });
   }
 });
 
-// 할일 상세 조회
-router.get("/:id", async (req, res) => {
+// 개인 Todo 생성
+router.post("/", authenticateToken, async (req, res) => {
+  try {
+    const { title, description, status, priority, startDate, dueDate } =
+      req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: "제목은 필수입니다" });
+    }
+
+    // 상태 및 우선순위 검증
+    const validStatuses = ["pending", "in_progress", "completed"];
+    const validPriorities = ["low", "medium", "high"];
+
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ error: "유효하지 않은 상태입니다" });
+    }
+
+    if (priority && !validPriorities.includes(priority)) {
+      return res.status(400).json({ error: "유효하지 않은 우선순위입니다" });
+    }
+
+    const todo = await prisma.personalTodo.create({
+      data: {
+        userId: req.user.userId,
+        title,
+        description,
+        status: status || "pending",
+        priority: priority || "medium",
+        startDate: startDate ? new Date(startDate) : null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+      },
+    });
+
+    res.status(201).json(todo);
+  } catch (error) {
+    console.error("개인 Todo 생성 오류:", error);
+    res.status(500).json({ error: "Todo 생성에 실패했습니다" });
+  }
+});
+
+// 개인 Todo 상세 조회
+router.get("/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const todo = await prisma.todo.findFirst({
-      where: {
-        id,
-        userId: req.user.userId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            nickname: true,
-          },
-        },
-      },
+    const todo = await prisma.personalTodo.findFirst({
+      where: { id, userId: req.user.userId },
     });
 
     if (!todo) {
-      return res.status(404).json({ error: "할일을 찾을 수 없습니다." });
+      return res.status(404).json({ error: "Todo를 찾을 수 없습니다" });
     }
 
-    res.json({ todo });
+    res.json(todo);
   } catch (error) {
-    console.error("할일 상세 조회 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("개인 Todo 상세 조회 오류:", error);
+    res.status(500).json({ error: "Todo 조회에 실패했습니다" });
   }
 });
 
-// 할일 생성
-router.post("/", async (req, res) => {
-  try {
-    const {
-      title,
-      description,
-      startDate,
-      endDate,
-      priority = "medium",
-    } = req.body;
-
-    // 입력 검증
-    if (!title) {
-      return res.status(400).json({ error: "제목을 입력해주세요." });
-    }
-
-    // 날짜 검증
-    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-      return res
-        .status(400)
-        .json({ error: "시작일은 종료일보다 이전이어야 합니다." });
-    }
-
-    const todo = await prisma.todo.create({
-      data: {
-        title,
-        description,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        priority,
-        userId: req.user.userId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            nickname: true,
-          },
-        },
-      },
-    });
-
-    res.status(201).json({
-      message: "할일이 생성되었습니다.",
-      todo,
-    });
-  } catch (error) {
-    console.error("할일 생성 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
-  }
-});
-
-// 할일 수정
-router.put("/:id", async (req, res) => {
+// 개인 Todo 수정
+router.patch("/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, completed, startDate, endDate, priority } =
-      req.body;
+    const updateData = req.body;
 
-    // 할일 존재 확인
-    const existingTodo = await prisma.todo.findFirst({
-      where: {
-        id,
-        userId: req.user.userId,
-      },
+    const existingTodo = await prisma.personalTodo.findFirst({
+      where: { id, userId: req.user.userId },
     });
 
     if (!existingTodo) {
-      return res.status(404).json({ error: "할일을 찾을 수 없습니다." });
+      return res.status(404).json({ error: "Todo를 찾을 수 없습니다" });
     }
 
-    // 날짜 검증
-    const newStartDate = startDate
-      ? new Date(startDate)
-      : existingTodo.startDate;
-    const newEndDate = endDate ? new Date(endDate) : existingTodo.endDate;
+    // 상태 및 우선순위 검증
+    const validStatuses = ["pending", "in_progress", "completed"];
+    const validPriorities = ["low", "medium", "high"];
 
-    if (newStartDate && newEndDate && newStartDate > newEndDate) {
-      return res
-        .status(400)
-        .json({ error: "시작일은 종료일보다 이전이어야 합니다." });
+    if (updateData.status && !validStatuses.includes(updateData.status)) {
+      return res.status(400).json({ error: "유효하지 않은 상태입니다" });
     }
 
-    const updateData = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (completed !== undefined) updateData.completed = completed;
-    if (startDate !== undefined)
-      updateData.startDate = startDate ? new Date(startDate) : null;
-    if (endDate !== undefined)
-      updateData.endDate = endDate ? new Date(endDate) : null;
-    if (priority !== undefined) updateData.priority = priority;
+    if (updateData.priority && !validPriorities.includes(updateData.priority)) {
+      return res.status(400).json({ error: "유효하지 않은 우선순위입니다" });
+    }
 
-    const todo = await prisma.todo.update({
+    // 날짜 변환
+    if (updateData.startDate)
+      updateData.startDate = new Date(updateData.startDate);
+    if (updateData.dueDate) updateData.dueDate = new Date(updateData.dueDate);
+
+    const updatedTodo = await prisma.personalTodo.update({
       where: { id },
       data: updateData,
-      include: {
-        user: {
-          select: {
-            id: true,
-            nickname: true,
-          },
-        },
+    });
+
+    res.json(updatedTodo);
+  } catch (error) {
+    console.error("개인 Todo 수정 오류:", error);
+    res.status(500).json({ error: "Todo 수정에 실패했습니다" });
+  }
+});
+
+// 개인 Todo 삭제
+router.delete("/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const existingTodo = await prisma.personalTodo.findFirst({
+      where: { id, userId: req.user.userId },
+    });
+
+    if (!existingTodo) {
+      return res.status(404).json({ error: "Todo를 찾을 수 없습니다" });
+    }
+
+    await prisma.personalTodo.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error) {
+    console.error("개인 Todo 삭제 오류:", error);
+    res.status(500).json({ error: "Todo 삭제에 실패했습니다" });
+  }
+});
+
+// 개인 Todo 통계
+router.get("/stats/summary", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const stats = await prisma.personalTodo.groupBy({
+      by: ["status"],
+      where: { userId },
+      _count: { id: true },
+    });
+
+    const priorityStats = await prisma.personalTodo.groupBy({
+      by: ["priority"],
+      where: { userId },
+      _count: { id: true },
+    });
+
+    const result = {
+      byStatus: {
+        pending: 0,
+        in_progress: 0,
+        completed: 0,
+        total: 0,
       },
+      byPriority: {
+        low: 0,
+        medium: 0,
+        high: 0,
+      },
+    };
+
+    stats.forEach((stat) => {
+      result.byStatus[stat.status] = stat._count.id;
+      result.byStatus.total += stat._count.id;
+    });
+
+    priorityStats.forEach((stat) => {
+      result.byPriority[stat.priority] = stat._count.id;
+    });
+
+    // 이번 주 완료된 할일
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekCompleted = await prisma.personalTodo.count({
+      where: {
+        userId,
+        status: "completed",
+        updatedAt: { gte: weekStart },
+      },
+    });
+
+    result.weekCompleted = weekCompleted;
+
+    res.json(result);
+  } catch (error) {
+    console.error("개인 Todo 통계 조회 오류:", error);
+    res.status(500).json({ error: "통계 조회에 실패했습니다" });
+  }
+});
+
+// 완료율 업데이트 (벌크 작업)
+router.patch("/bulk/status", authenticateToken, async (req, res) => {
+  try {
+    const { todoIds, status } = req.body;
+
+    if (!todoIds || !Array.isArray(todoIds) || todoIds.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "유효한 Todo ID 배열이 필요합니다" });
+    }
+
+    const validStatuses = ["pending", "in_progress", "completed"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: "유효하지 않은 상태입니다" });
+    }
+
+    // 사용자 소유 Todo만 업데이트
+    const result = await prisma.personalTodo.updateMany({
+      where: {
+        id: { in: todoIds },
+        userId: req.user.userId,
+      },
+      data: { status },
     });
 
     res.json({
-      message: "할일이 수정되었습니다.",
-      todo,
+      message: `${result.count}개의 Todo 상태가 업데이트되었습니다`,
+      updatedCount: result.count,
     });
   } catch (error) {
-    console.error("할일 수정 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
-  }
-});
-
-// 할일 삭제
-router.delete("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // 할일 존재 확인
-    const existingTodo = await prisma.todo.findFirst({
-      where: {
-        id,
-        userId: req.user.userId,
-      },
-    });
-
-    if (!existingTodo) {
-      return res.status(404).json({ error: "할일을 찾을 수 없습니다." });
-    }
-
-    await prisma.todo.delete({
-      where: { id },
-    });
-
-    res.json({ message: "할일이 삭제되었습니다." });
-  } catch (error) {
-    console.error("할일 삭제 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
-  }
-});
-
-// 간트차트용 데이터 조회
-router.get("/gantt/data", async (req, res) => {
-  try {
-    const todos = await prisma.todo.findMany({
-      where: {
-        userId: req.user.userId,
-        AND: [{ startDate: { not: null } }, { endDate: { not: null } }],
-      },
-      orderBy: {
-        startDate: "asc",
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            nickname: true,
-          },
-        },
-      },
-    });
-
-    const ganttData = todos.map((todo) => ({
-      id: todo.id,
-      title: todo.title,
-      start: todo.startDate,
-      end: todo.endDate,
-      progress: todo.completed ? 100 : 0,
-      priority: todo.priority,
-      completed: todo.completed,
-    }));
-
-    res.json({ ganttData });
-  } catch (error) {
-    console.error("간트차트 데이터 조회 에러:", error);
-    res.status(500).json({ error: "서버 에러가 발생했습니다." });
+    console.error("Todo 벌크 업데이트 오류:", error);
+    res.status(500).json({ error: "Todo 업데이트에 실패했습니다" });
   }
 });
 

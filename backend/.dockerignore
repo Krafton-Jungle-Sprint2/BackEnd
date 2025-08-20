@@ -1,0 +1,89 @@
+# .dockerignore - Docker 빌드 최적화
+
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 환경 변수 파일들
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backup
+
+# 로그 파일들
+logs
+*.log
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# 개발 도구들
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 생성 파일들
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# 테스트 및 커버리지
+coverage/
+.nyc_output
+.coverage
+*.lcov
+
+# 임시 파일들
+tmp/
+temp/
+.tmp/
+
+# 빌드 결과물
+dist/
+build/
+out/
+
+# 데이터베이스 파일들
+*.sqlite
+*.sqlite3
+*.db
+
+# 업로드 파일들
+uploads/
+public/uploads/
+
+# 백업 파일들
+*.bak
+*.backup
+
+# 문서
+README.md
+docs/
+*.md
+
+# 개발용 설정 파일들
+.env.dev
+docker-compose.dev.yml
+
+# Prisma
+prisma/migrations/
+!prisma/schema.prisma

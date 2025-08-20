@@ -1,0 +1,27 @@
+# Dockerfile.dev
+FROM node:20-slim
+
+# 개발에 필요한 패키지 설치
+RUN apk add --no-cache curl git
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 패키지 파일 복사
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# 모든 의존성 설치 (devDependencies 포함)
+RUN npm install
+
+# Prisma 클라이언트 생성
+RUN npx prisma generate
+
+# 개발용이므로 소스코드는 볼륨 마운트로 처리
+# COPY src ./src  <- 이 라인은 제거 (볼륨으로 마운트)
+
+# 포트 노출 (Prisma Studio용 5555 추가)
+EXPOSE 4000 5000 5555
+
+# 개발 서버 실행 (nodemon 사용)
+CMD ["npm", "run", "dev"]

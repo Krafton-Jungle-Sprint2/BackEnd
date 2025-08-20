@@ -1,330 +1,179 @@
-// my-backend/src/app.js
-const express = require("express");
-const http = require("http");
-const socketIo = require("socket.io");
-const cors = require("cors");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const mysql = require("mysql2/promise");
+// src/index.js - 서버 시작점 강화
 require("dotenv").config();
+const { config, validateConfig } = require("./config/env");
+const app = require("./app");
+const http = require("http");
+const { initializeSocket } = require("./socket");
+const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcrypt");
 
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-});
+// 환경 변수 검증
+console.log("🔍 환경 변수 검증 중...");
+validateConfig();
 
-// 미들웨어
-app.use(cors());
-app.use(express.json());
+const prisma = new PrismaClient();
 
-// ===== 👇 이 부분을 추가했습니다. 👇 =====
-// 루트 경로("/")에 대한 GET 요청을 처리하는 라우터
-app.get("/", (req, res) => {
-  res.send("서버가 정상적으로 작동합니다!");
-});
-// ======================================
+// HTTP 서버들 생성
+const apiServer = http.createServer(app);
+const socketServer = http.createServer();
 
-// MySQL 연결
-const db = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "password",
-  database: process.env.DB_NAME || "my_app",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
+// Socket.IO 초기화
+const io = initializeSocket(socketServer);
 
-// JWT 인증 미들웨어
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+const API_PORT = config.server.apiPort;
+const SOCKET_PORT = config.server.socketPort;
 
-  if (!token) {
-    return res.sendStatus(401);
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET || "secret_key", (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-};
-
-// ==================== 인증 API ====================
-app.post("/api/auth/register", async (req, res) => {
+// 기본 데이터 생성 함수
+async function createDefaultData() {
   try {
-    const { email, password, nickname } = req.body; // 중복 체크
-
-    const [existingUsers] = await db.execute(
-      "SELECT id FROM users WHERE email = ?",
-      [email]
-    );
-
-    if (existingUsers.length > 0) {
-      return res.status(400).json({ error: "이미 존재하는 이메일입니다" });
-    } // 비밀번호 해시
-
-    const hashedPassword = await bcrypt.hash(password, 10); // 사용자 생성
-
-    const [result] = await db.execute(
-      "INSERT INTO users (email, password, nickname) VALUES (?, ?, ?)",
-      [email, hashedPassword, nickname]
-    );
-
-    const token = jwt.sign(
-      { userId: result.insertId, email },
-      process.env.JWT_SECRET || "secret_key"
-    );
-
-    res.json({
-      token,
-      user: {
-        id: result.insertId,
-        email,
-        nickname,
-      },
+    console.log("📝 기본 데이터 생성 중...");
+    
+    // 관리자 계정 생성 (이미 있으면 스킵)
+    const adminExists = await prisma.user.findUnique({
+      where: { email: "admin@example.com" },
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const [users] = await db.execute("SELECT * FROM users WHERE email = ?", [
-      email,
-    ]);
-
-    if (users.length === 0) {
-      return res.status(400).json({ error: "사용자를 찾을 수 없습니다" });
+    if (!adminExists) {
+      const hashedPassword = await bcrypt.hash("password123", 10);
+      await prisma.user.create({
+        data: {
+          email: "admin@example.com",
+          password: hashedPassword,
+          nickname: "관리자",
+          role: "admin",
+        },
+      });
+      console.log("✅ 관리자 계정 생성 완료");
+    } else {
+      console.log("ℹ️  관리자 계정이 이미 존재합니다");
     }
 
-    const user = users[0];
-    const isValidPassword = await bcrypt.compare(password, user.password);
-
-    if (!isValidPassword) {
-      return res.status(400).json({ error: "비밀번호가 틀렸습니다" });
-    }
-
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || "secret_key"
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        nickname: user.nickname,
-      },
+    // 테스트 사용자 생성
+    const testUserExists = await prisma.user.findUnique({
+      where: { email: "test@example.com" },
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
-// ==================== TODO API ====================
-app.get("/api/todos", authenticateToken, async (req, res) => {
-  try {
-    const [todos] = await db.execute(
-      "SELECT * FROM todos WHERE user_id = ? ORDER BY created_at DESC",
-      [req.user.userId]
-    );
-    res.json(todos);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/todos", authenticateToken, async (req, res) => {
-  try {
-    const { title, start_date, end_date, description } = req.body;
-
-    const [result] = await db.execute(
-      "INSERT INTO todos (title, start_date, end_date, description, user_id) VALUES (?, ?, ?, ?, ?)",
-      [title, start_date, end_date, description || null, req.user.userId]
-    );
-
-    const [newTodo] = await db.execute("SELECT * FROM todos WHERE id = ?", [
-      result.insertId,
-    ]);
-
-    res.status(201).json(newTodo[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/todos/:id", authenticateToken, async (req, res) => {
-  try {
-    const { title, start_date, end_date, description, completed } = req.body;
-
-    await db.execute(
-      "UPDATE todos SET title = ?, start_date = ?, end_date = ?, description = ?, completed = ? WHERE id = ? AND user_id = ?",
-      [
-        title,
-        start_date,
-        end_date,
-        description,
-        completed,
-        req.params.id,
-        req.user.userId,
-      ]
-    );
-
-    const [updatedTodo] = await db.execute(
-      "SELECT * FROM todos WHERE id = ? AND user_id = ?",
-      [req.params.id, req.user.userId]
-    );
-
-    res.json(updatedTodo[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/todos/:id", authenticateToken, async (req, res) => {
-  try {
-    await db.execute("DELETE FROM todos WHERE id = ? AND user_id = ?", [
-      req.params.id,
-      req.user.userId,
-    ]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ==================== 간트차트 API ====================
-app.get("/api/gantt", authenticateToken, async (req, res) => {
-  try {
-    const [todos] = await db.execute(
-      "SELECT id, title, start_date, end_date, completed FROM todos WHERE user_id = ? AND start_date IS NOT NULL AND end_date IS NOT NULL ORDER BY start_date ASC",
-      [req.user.userId]
-    );
-    res.json(todos);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ==================== 채팅방 API ====================
-app.get("/api/chat/rooms", authenticateToken, async (req, res) => {
-  try {
-    const [rooms] = await db.execute(
-      "SELECT * FROM chat_rooms ORDER BY created_at DESC"
-    );
-    res.json(rooms);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/chat/rooms", authenticateToken, async (req, res) => {
-  try {
-    const { name, description } = req.body;
-
-    const [result] = await db.execute(
-      "INSERT INTO chat_rooms (name, description, created_by) VALUES (?, ?, ?)",
-      [name, description || null, req.user.userId]
-    );
-
-    const [newRoom] = await db.execute(
-      "SELECT * FROM chat_rooms WHERE id = ?",
-      [result.insertId]
-    );
-
-    res.status(201).json(newRoom[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get(
-  "/api/chat/rooms/:roomId/messages",
-  authenticateToken,
-  async (req, res) => {
-    try {
-      const [messages] = await db.execute(
-        `SELECT cm.*, u.nickname as user_nickname 
-       FROM chat_messages cm 
-       JOIN users u ON cm.user_id = u.id 
-       WHERE cm.room_id = ? 
-       ORDER BY cm.created_at ASC`,
-        [req.params.roomId]
-      );
-      res.json(messages);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+    if (!testUserExists) {
+      const hashedPassword = await bcrypt.hash("password123", 10);
+      await prisma.user.create({
+        data: {
+          email: "test@example.com",
+          password: hashedPassword,
+          nickname: "테스트유저",
+          role: "member",
+        },
+      });
+      console.log("✅ 테스트 사용자 생성 완료");
+    } else {
+      console.log("ℹ️  테스트 사용자가 이미 존재합니다");
     }
+    
+    console.log("✅ 기본 데이터 생성 완료");
+  } catch (error) {
+    console.error("❌ 기본 데이터 생성 오류:", error);
+    // 기본 데이터 생성 실패는 서버 시작을 막지 않음
   }
-);
+}
 
-// ==================== Socket.IO 채팅 ====================
-io.on("connection", (socket) => {
-  console.log("사용자 연결:", socket.id);
+// 서버 시작 함수
+async function startServer() {
+  try {
+    console.log("🚀 서버 시작 중...");
+    
+    // Prisma 연결 테스트
+    console.log("🔌 Prisma 연결 테스트...");
+    await prisma.$connect();
+    console.log("✅ Prisma 연결 성공");
 
-  socket.on("join_room", (roomId) => {
-    socket.join(roomId);
-    socket.emit("joined_room", roomId);
-  });
+    // 기본 데이터 생성
+    await createDefaultData();
 
-  socket.on("leave_room", (roomId) => {
-    socket.leave(roomId);
-  });
+    // API 서버 시작
+    apiServer.listen(API_PORT, () => {
+      console.log(`🚀 API 서버: http://localhost:${API_PORT}`);
+    });
 
-  socket.on("send_message", async (data) => {
-    try {
-      const { roomId, message, userId, userNickname } = data; // 메시지 DB 저장
+    // Socket.IO 서버 시작
+    socketServer.listen(SOCKET_PORT, () => {
+      console.log(`💬 Socket.IO 서버: http://localhost:${SOCKET_PORT}`);
+    });
 
-      const [result] = await db.execute(
-        "INSERT INTO chat_messages (room_id, user_id, message) VALUES (?, ?, ?)",
-        [roomId, userId, message]
-      );
-
-      const newMessage = {
-        id: result.insertId,
-        room_id: roomId,
-        user_id: userId,
-        message,
-        user_nickname: userNickname,
-        created_at: new Date(),
-      }; // 같은 방에 있는 모든 사용자에게 메시지 전송
-
-      io.to(roomId).emit("receive_message", newMessage);
-    } catch (error) {
-      socket.emit("error", { message: "메시지 전송 실패" });
+    console.log("🎉 모든 서버가 성공적으로 시작되었습니다!");
+    
+    // 서버 정보 출력
+    console.log("📊 서버 정보:");
+    console.log(`   - Node.js 버전: ${process.version}`);
+    console.log(`   - 환경: ${config.server.nodeEnv}`);
+    console.log(`   - API 포트: ${API_PORT}`);
+    console.log(`   - Socket 포트: ${SOCKET_PORT}`);
+    console.log(`   - 데이터베이스: ${config.database.url.split('@')[1]}`);
+    
+  } catch (error) {
+    console.error("❌ 서버 시작 실패:", error);
+    
+    // 상세한 오류 정보 출력
+    if (error.code === 'P1001') {
+      console.error("💡 데이터베이스 연결 실패. 다음을 확인하세요:");
+      console.error("   1. 데이터베이스 서버가 실행 중인지 확인");
+      console.error("   2. DATABASE_URL이 올바른지 확인");
+      console.error("   3. 데이터베이스 사용자 권한 확인");
+    } else if (error.code === 'P1002') {
+      console.error("💡 데이터베이스 인증 실패. 다음을 확인하세요:");
+      console.error("   1. 데이터베이스 사용자명과 비밀번호 확인");
+      console.error("   2. 데이터베이스 사용자 권한 확인");
+    } else if (error.code === 'P1003') {
+      console.error("💡 데이터베이스가 존재하지 않습니다. 다음을 확인하세요:");
+      console.error("   1. 데이터베이스가 생성되었는지 확인");
+      console.error("   2. DATABASE_URL의 데이터베이스명 확인");
     }
-  });
+    
+    process.exit(1);
+  }
+}
 
-  socket.on("disconnect", () => {
-    console.log("사용자 연결 해제:", socket.id);
-  });
+// 앱 종료 시 정리 작업
+async function gracefulShutdown(signal) {
+  console.log(`\n🛑 ${signal} 신호를 받았습니다. 서버를 안전하게 종료합니다...`);
+  
+  try {
+    // HTTP 서버 종료
+    apiServer.close(() => {
+      console.log("✅ API 서버 종료 완료");
+    });
+    
+    socketServer.close(() => {
+      console.log("✅ Socket.IO 서버 종료 완료");
+    });
+    
+    // Prisma 연결 해제
+    await prisma.$disconnect();
+    console.log("✅ 데이터베이스 연결 해제 완료");
+    
+    console.log("✅ 모든 리소스 정리 완료");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ 서버 종료 중 오류 발생:", error);
+    process.exit(1);
+  }
+}
+
+// 프로세스 종료 신호 처리
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("beforeExit", async () => {
+  await prisma.$disconnect();
 });
 
-// 헬스체크
-app.get("/health", (req, res) => {
-  res.json({ status: "OK", timestamp: new Date().toISOString() });
+// 예상치 못한 오류 처리
+process.on("uncaughtException", (error) => {
+  console.error("❌ 예상치 못한 오류 발생:", error);
+  gracefulShutdown("uncaughtException");
 });
 
-// API 포트와 Socket 포트를 다르게 실행
-const API_PORT = process.env.API_PORT || 4000;
-const SOCKET_PORT = process.env.SOCKET_PORT || 5000;
-
-// API 서버 (포트 4000)
-app.listen(API_PORT, () => {
-  console.log(`API 서버 실행중: http://localhost:${API_PORT}`);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ 처리되지 않은 Promise 거부:", reason);
+  gracefulShutdown("unhandledRejection");
 });
 
-// Socket.IO 서버 (포트 5000)
-server.listen(SOCKET_PORT, () => {
-  console.log(`Socket.IO 서버 실행중: http://localhost:${SOCKET_PORT}`);
-});
+// 서버 시작
+startServer();

@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma - 새로운 테이블 구조
 
 generator client {
   provider = "prisma-client-js"
@@ -10,65 +9,153 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 사용자 테이블
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
   password  String
   nickname  String
+  avatar    String?
+  role      String   @default("member")
+  isActive  Boolean  @default(true)
+  lastLogin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  
   // 관계
-  todos    Todo[]
-  messages ChatMessage[]
+  personalTodos PersonalTodo[]
+  
+  // 친구 관계 (요청한 쪽)
+  sentFriendRequests     Friend[] @relation("UserSentRequests")
+  // 친구 관계 (요청받은 쪽)
+  receivedFriendRequests Friend[] @relation("UserReceivedRequests")
+  
+  // 워크스페이스 소유
+  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  // 워크스페이스 멤버
+  workspaceMembers WorkspaceMember[]
+  
+  // 리프레시 토큰
+  refreshTokens RefreshToken[]
   
   @@map("users")
 }
 
-model Todo {
-  id          String    @id @default(uuid())
-  title       String
-  description String?   @db.Text
-  completed   Boolean   @default(false)
-  startDate   DateTime?
-  endDate     DateTime?
-  priority    String    @default("medium") // low, medium, high
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // 관계
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("todos")
-}
-
-model ChatRoom {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  isPrivate   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // 관계
-  messages ChatMessage[]
-
-  @@map("chat_rooms")
-}
-
-model ChatMessage {
+// 친구 관계 테이블
+model Friend {
   id        String   @id @default(uuid())
-  content   String   @db.Text
+  userId    String   // 친구 요청을 보낸 사용자
+  friendId  String   // 친구 요청을 받은 사용자
+  status    String   @default("pending") // pending, accepted, blocked
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // 관계
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  roomId String
-  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  // 관계
+  user   User @relation("UserSentRequests", fields: [userId], references: [id], onDelete: Cascade)
+  friend User @relation("UserReceivedRequests", fields: [friendId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@index([status])
+  @@map("friends")
+}
 
-  @@map("chat_messages")
+// 개인 Todo 테이블
+model PersonalTodo {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String?  @db.Text
+  status      String   @default("pending") // pending, in_progress, completed
+  priority    String   @default("medium")  // low, medium, high
+  startDate   DateTime?
+  dueDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // 관계
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([startDate])
+  @@index([dueDate])
+  @@map("personal_todos")
+}
+
+// 워크스페이스 테이블
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String   // 워크스페이스 소유자
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // 관계
+  owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members WorkspaceMember[]
+  tasks   GroupTask[]
+  
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+// 워크스페이스 멤버 테이블
+model WorkspaceMember {
+  id          String   @id @default(uuid())
+  workspaceId String
+  userId      String
+  accepted    Boolean  @default(false) // 초대 수락 여부
+  joinedAt    DateTime @default(now())
+  
+  // 관계
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+// 단체 Task 테이블
+model GroupTask {
+  id          String   @id @default(uuid())
+  workspaceId String
+  title       String
+  description String?  @db.Text
+  department  String   // FE, BE, QA
+  status      String   @default("pending") // pending, in_progress, completed
+  startDate   DateTime
+  dueDate     DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // 관계
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@index([workspaceId])
+  @@index([department])
+  @@index([status])
+  @@index([startDate])
+  @@index([dueDate])
+  @@map("group_tasks")
+}
+
+// 리프레시 토큰 테이블
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token String @unique @db.VarChar(512) 
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  // 관계
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }
