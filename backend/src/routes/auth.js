@@ -1,4 +1,4 @@
-// src/routes/auth.js - 수정된 인증 라우터
+// src/routes/auth.js - 최소한의 수정만 적용
 const express = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken"); // JWT 검증을 위해 추가
@@ -213,10 +213,11 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// 토큰 갱신 - 수정된 부분
+// 토큰 갱신 - 핵심 수정 부분만
 router.post("/refresh", async (req, res) => {
   try {
     console.log("토큰 갱신 요청"); // 디버그 로그
+    console.log("요청 body:", req.body); // 추가된 디버그 로그
 
     const { refreshToken: refresh } = req.body; // refreshToken 또는 refresh 둘 다 지원
     const refreshTokenToUse = refresh || req.body.refresh;
@@ -226,6 +227,7 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ error: "리프레시 토큰이 필요합니다" });
     }
 
+    console.log("토큰 길이:", refreshTokenToUse.length); // 추가된 디버그 로그
     console.log("데이터베이스에서 토큰 조회 중...");
 
     // 데이터베이스에서 리프레시 토큰 조회
@@ -247,10 +249,17 @@ router.post("/refresh", async (req, res) => {
 
     if (!storedToken) {
       console.log("토큰이 데이터베이스에 없음");
+      // 추가된 디버그: 토큰 앞뒤 10자리만 로깅
+      console.log(
+        "찾는 토큰 앞부분:",
+        refreshTokenToUse.substring(0, 10) + "..."
+      );
       return res
         .status(401)
         .json({ error: "유효하지 않은 리프레시 토큰입니다" });
     }
+
+    console.log("토큰 소유자:", storedToken.user.email); // 추가된 디버그 로그
 
     // 토큰 만료 확인
     if (storedToken.expiresAt < new Date()) {
@@ -272,7 +281,11 @@ router.post("/refresh", async (req, res) => {
 
     // JWT 자체의 유효성도 검증 (선택적, 하지만 보안상 권장)
     try {
-      jwt.verify(refreshTokenToUse, process.env.REFRESH_TOKEN_SECRET);
+      const decoded = jwt.verify(
+        refreshTokenToUse,
+        process.env.REFRESH_TOKEN_SECRET
+      ); // 수정: 디코딩 결과 저장
+      console.log("JWT 검증 성공, 사용자 ID:", decoded.userId); // 추가된 디버그 로그
     } catch (jwtError) {
       console.log("JWT 검증 실패:", jwtError.message);
       // 유효하지 않은 JWT는 삭제
