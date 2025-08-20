@@ -1,16 +1,17 @@
 {
   "name": "team-collaboration-backend",
-  "version": "1.0.0",
-  "description": "Team collaboration backend with Express, Socket.IO, and MySQL",
-  "main": "src/index.js",
+  "version": "2.0.0",
+  "description": "Team collaboration backend with Express, Socket.IO, and MySQL - New API Structure",
+  "main": "src/app.js",
   "scripts": {
-    "dev": "nodemon src/index.js",
+    "dev": "node src/index.js",
     "start": "node src/index.js",
-    "docker:build": "docker build -t codea-backend .",
-    "docker:run": "docker run -p 4000:4000 -p 5000:5000 -p 5555:5555 codea-backend",
+    "dev:watch": "nodemon src/index.js",
+    "docker:build": "docker build -t team-backend .",
+    "docker:run": "docker run -p 4000:4000 -p 5000:5000 -p 5555:5555 team-backend",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "docker:dev": "docker-compose -f docker-compose.dev.yml up -d",
+    "docker:dev": "docker-compose --profile dev up -d",
     "prisma:migrate": "docker-compose exec backend npx prisma migrate dev",
     "prisma:studio": "docker-compose exec backend npx prisma studio --hostname 0.0.0.0",
     "prisma:studio-local": "npx prisma studio",
@@ -22,8 +23,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "node src/seed.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "studio": "prisma studio"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -34,9 +34,12 @@
     "mysql",
     "prisma",
     "jwt",
-    "collaboration"
+    "collaboration",
+    "workspace",
+    "friends",
+    "tasks"
   ],
-  "author": "Your Name",
+  "author": "Team Collaboration",
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.7.1",
