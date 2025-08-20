@@ -44,10 +44,19 @@ services:
       # Root 사용자 사용 (Shadow DB 문제 해결)
       DATABASE_URL: mysql://root:rootpassword@mysql:3306/team_collaboration
       SHADOW_DATABASE_URL: mysql://root:rootpassword@mysql:3306/team_collaboration_shadow
-      JWT_SECRET: your-production-jwt-secret-key
+      # 강력한 JWT 시크릿 키 (최소 32자)
+      JWT_SECRET: your-super-secret-jwt-key-for-access-tokens-change-this-in-production-2024
+      REFRESH_TOKEN_SECRET: your-super-secret-jwt-key-for-refresh-tokens-change-this-in-production-2024
+      ACCESS_TOKEN_EXPIRY: 15m
+      REFRESH_TOKEN_EXPIRY: 7d
       API_PORT: 4000
       SOCKET_PORT: 5000
       NODE_ENV: development
+      FRONTEND_URL: http://localhost:3000
+      # 데이터베이스 연결 풀 설정
+      DATABASE_POOL_SIZE: 10
+      DATABASE_CONNECTION_TIMEOUT: 30000
+      DATABASE_QUERY_TIMEOUT: 30000
     ports:
       - "4000:4000" # API
       - "5000:5000" # Socket.IO
