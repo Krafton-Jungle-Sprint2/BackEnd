@@ -37,7 +37,7 @@ else
 fi
 
 # 프론트엔드 확인
-if curl -f http://localhost:3000 > /dev/null 2>&1; then
+if curl -f http://localhost:5173 > /dev/null 2>&1; then
     echo "✅ 프론트엔드 서버 정상"
 else
     echo "❌ 프론트엔드 서버 오류"
@@ -46,6 +46,6 @@ else
 fi
 
 echo "🎉 배포 완료!"
-echo "📱 프론트엔드: http://localhost:3000"
+echo "📱 프론트엔드: http://localhost:5173"
 echo "🔧 백엔드 API: http://localhost:4000"
 echo "📊 로그 확인: docker-compose logs -f"

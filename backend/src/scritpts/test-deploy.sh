@@ -59,7 +59,7 @@ if ! check_service "http://localhost:4000/health" "백엔드 API"; then
 fi
 
 # 프론트엔드 서비스 대기
-if ! check_service "http://localhost:3000" "프론트엔드"; then
+if ! check_service "http://localhost:5713" "프론트엔드"; then
     print_warning "프론트엔드 서비스 응답 없음 (선택적)"
 fi
 
@@ -207,7 +207,7 @@ fi
 echo ""
 echo "3️⃣ 프론트엔드 테스트..."
 echo "========================"
-frontend_response=$(curl -s -w "%{http_code}" http://localhost:3000 -o /dev/null)
+frontend_response=$(curl -s -w "%{http_code}" http://localhost:5173 -o /dev/null)
 
 if [ "$frontend_response" == "200" ]; then
     print_success "프론트엔드 서버 응답 (HTTP 200)"
@@ -222,7 +222,7 @@ echo "🎉 배포 테스트 완료!"
 echo "================================================"
 echo ""
 echo "📱 서비스 접속 정보:"
-echo "   🌐 웹사이트: http://localhost:3000"
+echo "   🌐 웹사이트: http://localhost:5173"
 echo "   🔌 API: http://localhost:4000"
 echo "   💬 Socket.IO: http://localhost:5000"
 echo "   👤 테스트 계정: admin@example.com / password123"
