@@ -9,6 +9,12 @@ const router = express.Router();
 
 // 회원가입
 router.post("/signup", async (req, res) => {
+  console.log("=== 회원가입 라우터 진입 ===");
+  console.log("요청 메서드:", req.method);
+  console.log("요청 경로:", req.path);
+  console.log("요청 헤더:", req.headers);
+  console.log("요청 바디:", req.body);
+
   try {
     console.log("회원가입 요청:", req.body); // 디버그 로그
 
@@ -103,8 +109,17 @@ router.post("/signup", async (req, res) => {
       refreshToken,
     });
   } catch (error) {
-    console.error("회원가입 오류 상세:", error); // 상세한 에러 로그
-    console.error("Error stack:", error.stack); // 스택 트레이스
+    console.error("=== 회원가입 오류 발생 ===");
+    console.error("오류 타입:", error.constructor.name);
+    console.error("오류 메시지:", error.message);
+    console.error("오류 코드:", error.code);
+    console.error("오류 스택:", error.stack);
+    console.error("요청 정보:", {
+      method: req.method,
+      path: req.path,
+      body: req.body,
+      headers: req.headers,
+    });
 
     // Prisma 관련 에러 처리
     if (error.code === "P2002") {

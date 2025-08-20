@@ -5,12 +5,25 @@ const {
   getDatabaseStats,
   cleanupExpiredData,
 } = require("../config/database");
-const { authenticateToken, requireAdmin } = require("../middleware/auth");
+const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
 
-// 모든 관리자 라우트에 인증 및 관리자 권한 확인 적용
+// 모든 관리자 라우트에 인증 적용
 router.use(authenticateToken);
+
+// 관리자 권한 확인 미들웨어
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ 
+      error: "관리자 권한이 필요합니다",
+      code: "ADMIN_ACCESS_REQUIRED"
+    });
+  }
+  next();
+};
+
+// 관리자 권한이 필요한 라우트에만 적용
 router.use(requireAdmin);
 
 // 시스템 통계
