@@ -80,7 +80,7 @@ fi
 # 회원가입 테스트 (테스트용 계정)
 print_info "회원가입 테스트..."
 test_email="tester_$(date +%s)@test.com"  # 시간 기반 유니크 이메일
-signup_response=$(curl -s -X POST http://localhost:4000/api/auth/register \
+signup_response=$(curl -s -X POST http://localhost:4000/auth/signup \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$test_email\",\"password\":\"test123\",\"nickname\":\"자동테스터\"}")
 
@@ -92,7 +92,7 @@ fi
 
 # 기본 관리자 계정으로 로그인 테스트
 print_info "로그인 테스트 (기본 계정)..."
-login_response=$(curl -s -X POST http://localhost:4000/api/auth/login \
+login_response=$(curl -s -X POST http://localhost:4000/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"password123"}')
 
@@ -112,7 +112,7 @@ if echo "$login_response" | grep -q "token"; then
     # TODO 조회 테스트
     print_info "TODO API 테스트..."
     todos_response=$(curl -s -H "Authorization: Bearer $token" \
-      http://localhost:4000/api/todos)
+      http://localhost:4000/me/todos)
     
     if echo "$todos_response" | grep -q "\["; then
         print_success "TODO API 동작"
@@ -122,7 +122,7 @@ if echo "$login_response" | grep -q "token"; then
     
     # TODO 생성 테스트
     print_info "TODO 생성 테스트..."
-    todo_create_response=$(curl -s -X POST http://localhost:4000/api/todos \
+    todo_create_response=$(curl -s -X POST http://localhost:4000/me/todos \
       -H "Authorization: Bearer $token" \
       -H "Content-Type: application/json" \
       -d '{"title":"테스트 할일","description":"자동 테스트로 생성된 할일","startDate":"2025-08-18","endDate":"2025-08-25"}')
@@ -136,7 +136,7 @@ if echo "$login_response" | grep -q "token"; then
     # 채팅방 조회 테스트
     print_info "채팅방 API 테스트..."
     rooms_response=$(curl -s -H "Authorization: Bearer $token" \
-      http://localhost:4000/api/chat/rooms)
+      http://localhost:4000/chat/rooms)
     
     if echo "$rooms_response" | grep -q "\["; then
         print_success "채팅 API 동작"
@@ -147,7 +147,7 @@ if echo "$login_response" | grep -q "token"; then
     # 간트차트 API 테스트
     print_info "간트차트 API 테스트..."
     gantt_response=$(curl -s -H "Authorization: Bearer $token" \
-      http://localhost:4000/api/gantt)
+      http://localhost:4000/gantt)
     
     if echo "$gantt_response" | grep -q "\["; then
         print_success "간트차트 API 동작"
@@ -158,7 +158,7 @@ if echo "$login_response" | grep -q "token"; then
     # 팀원 조회 테스트
     print_info "팀원 API 테스트..."
     members_response=$(curl -s -H "Authorization: Bearer $token" \
-      http://localhost:4000/api/team/members)
+      http://localhost:4000/team/members)
     
     if echo "$members_response" | grep -q "\["; then
         print_success "팀원 API 동작"
@@ -223,7 +223,7 @@ echo "================================================"
 echo ""
 echo "📱 서비스 접속 정보:"
 echo "   🌐 웹사이트: http://localhost:3000"
-echo "   🔌 API: http://localhost:4000/api"
+echo "   🔌 API: http://localhost:4000"
 echo "   💬 Socket.IO: http://localhost:5000"
 echo "   👤 테스트 계정: admin@example.com / password123"
 echo ""

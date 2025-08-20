@@ -50,13 +50,13 @@ app.get("/", (req, res) => {
 });
 
 // API 라우터 등록
-app.use("/api/auth", authRouter);
-app.use("/api/users", usersRouter);
-app.use("/api/friends", friendsRouter);
-app.use("/api/me/todos", todosRouter);
-app.use("/api/workspaces", workspacesRouter);
-app.use("/api/workspaces/:wsId/tasks", tasksRouter); // 워크스페이스별 Task
-app.use("/api/admin", adminRouter);
+app.use("/auth", authRouter);
+app.use("/users", usersRouter);
+app.use("/friends", friendsRouter);
+app.use("/me/todos", todosRouter);
+app.use("/workspaces", workspacesRouter);
+app.use("/workspaces/:wsId/tasks", tasksRouter); // 워크스페이스별 Task
+app.use("/admin", adminRouter);
 
 // 헬스체크
 app.get("/health", async (req, res) => {
@@ -183,7 +183,7 @@ app.use((error, req, res, next) => {
     headers: req.headers,
     body: req.body,
     user: req.user ? { id: req.user.userId, email: req.user.email } : null,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 
   // Prisma 관련 에러 처리
@@ -193,7 +193,8 @@ app.use((error, req, res, next) => {
       message: "이미 존재하는 데이터입니다",
       code: "DUPLICATE_ENTRY",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -203,7 +204,8 @@ app.use((error, req, res, next) => {
       message: "요청한 데이터를 찾을 수 없습니다",
       code: "RECORD_NOT_FOUND",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -213,7 +215,8 @@ app.use((error, req, res, next) => {
       message: "참조 무결성 제약 조건 위반",
       code: "FOREIGN_KEY_CONSTRAINT",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -223,7 +226,8 @@ app.use((error, req, res, next) => {
       message: "고유 제약 조건 위반",
       code: "UNIQUE_CONSTRAINT",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -234,7 +238,8 @@ app.use((error, req, res, next) => {
       message: "유효하지 않은 토큰입니다",
       code: "INVALID_TOKEN",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -244,7 +249,8 @@ app.use((error, req, res, next) => {
       message: "토큰이 만료되었습니다",
       code: "TOKEN_EXPIRED",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -255,18 +261,24 @@ app.use((error, req, res, next) => {
       message: "비밀번호 암호화 중 오류가 발생했습니다",
       code: "BCRYPT_ERROR",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
   // 데이터베이스 연결 에러 처리
-  if (error.code === "P1001" || error.code === "P1002" || error.code === "P1003") {
+  if (
+    error.code === "P1001" ||
+    error.code === "P1002" ||
+    error.code === "P1003"
+  ) {
     return res.status(503).json({
       error: "Service Unavailable",
       message: "데이터베이스 서비스를 사용할 수 없습니다",
       code: "DATABASE_UNAVAILABLE",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -277,7 +289,8 @@ app.use((error, req, res, next) => {
       message: "요청 처리 시간이 초과되었습니다",
       code: "REQUEST_TIMEOUT",
       timestamp: new Date().toISOString(),
-      detail: process.env.NODE_ENV === "development" ? error.message : undefined
+      detail:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 
@@ -288,7 +301,7 @@ app.use((error, req, res, next) => {
     code: "INTERNAL_SERVER_ERROR",
     timestamp: new Date().toISOString(),
     detail: process.env.NODE_ENV === "development" ? error.message : undefined,
-    requestId: req.headers['x-request-id'] || 'unknown'
+    requestId: req.headers["x-request-id"] || "unknown",
   });
 });
 
